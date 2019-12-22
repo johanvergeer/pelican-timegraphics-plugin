@@ -6,149 +6,122 @@ This plugin allows you to embed `Time.Graphics`_ timelines into your posts.
 .. _Time.Graphics: https://time.graphics/
 """
 from __future__ import unicode_literals
-import hashlib
-import logging
-import os
-import re
-import codecs
-from typing import Union
 
-"""
-<iframe width="100%" height="400" src="https://time.graphics/embed?v=1&id=331171" frameborder="0" allowfullscreen></iframe>
-<div><a  style="font-size: 12px; text-decoration: none;" title="Powered by Time.Graphics" href="https://time.graphics">Powered by Time.Graphics</a></div>
-"""
+import logging
+import re
+from typing import Union, List, Optional, Dict
+
+from jinja2 import Template
+from pelican.generators import ArticlesGenerator
+from pelican.contents import Article
+
+_TIMEGRAPHICS_ALLOW_FULLSCREEN = "TIMEGRAPHICS_ALLOW_FULLSCREEN"
+_TIMEGRAPHICS_SHOW_POWERED_BY = "TIMEGRAPHICS_SHOW_POWERED_BY"
+_TIMEGRAPHICS_DEFAULT_WIDTH = "TIMEGRAPHICS_DEFAULT_WIDTH"
+_TIMEGRAPHICS_DEFAULT_HEIGHT = "TIMEGRAPHICS_DEFAULT_HEIGHT"
+_TIMEGRAPHICS_SHOW_FRAMEBORDER = "TIMEGRAPHICS_SHOW_FRAMEBORDER"
 
 logger = logging.getLogger(__name__)
-gist_regex = re.compile(
-    r'(<p>\[timegraphics:id\=([0-9a-fA-F]+)'
-    r'(,file\=([^\],]+))?'
-    r'(,filetype\=([a-zA-Z]+))?'
-    r'\]</p>)')
-iframe_template = """<iframe width="100%" height="400" src="https://time.graphics/embed?v=1&id=331171" frameborder="0" allowfullscreen></iframe>"""
+
+timegraphics_regex = re.compile(
+    r"(<p>\[timegraphics:id\=([0-9]+)"
+    r"(,width\=([1-9][0-9]*))?"
+    r"(,height\=([1-9][0-9]*))?"
+    r"(,allowfullscreen\=(0|1))?"
+    r"(,frameborder\=(0|1))?"
+    r"\]</p>)"
+)
 
 
-def embed_url(timeline_id: Union[int, str]) -> str:
-        return f"https://time.graphics/embed?v=1&id={timeline_id}"
+def timeline_url(timeline_id: Union[int, str]) -> str:
+    return f"https://time.graphics/embed?v=1&id={timeline_id}"
 
 
-def script_url(gist_id, filename=None):
-    url = "https://gist.github.com/{}.js".format(gist_id)
-    if filename is not None:
-        url += "?file={}".format(filename)
-    return url
+def get_match_value(match: List[str], index: int, default: Optional[str] = None) -> str:
+    return match[index] if len(match) > index and match[index] else default
 
 
-def cache_filename(base, gist_id, filename=None):
-    h = hashlib.md5()
-    h.update(str(gist_id).encode())
-    if filename is not None:
-        h.update(filename.encode())
-    return os.path.join(base, '{}.cache'.format(h.hexdigest()))
-
-
-def get_cache(base, gist_id, filename=None):
-    cache_file = cache_filename(base, gist_id, filename)
-    if not os.path.exists(cache_file):
-        return None
-    with codecs.open(cache_file, 'rb', 'utf-8') as f:
-        return f.read()
-
-
-def set_cache(base, gist_id, body, filename=None):
-    with codecs.open(cache_filename(base, gist_id, filename), 'wb', 'utf-8') as f:
-        f.write(body)
-
-
-def fetch_gist(gist_id, filename=None):
-    """Fetch a gist and return the contents as a string."""
-    import requests
-
-    url = gist_url(gist_id, filename)
-    response = requests.get(url)
-
-    if response.status_code != 200:
-        raise Exception('Got a bad status looking up gist.')
-    body = response.text
-    if not body:
-        raise Exception('Unable to get the gist contents.')
-
-    return body
-
-
-def setup_gist(pelican):
+def setup_timegraphics(pelican):
     """Setup the default settings."""
-    pelican.settings.setdefault('GIST_CACHE_ENABLED', True)
-    pelican.settings.setdefault('GIST_CACHE_LOCATION',
-                                '/tmp/gist-cache')
-    pelican.settings.setdefault('GIST_PYGMENTS_STYLE', 'default')
-    pelican.settings.setdefault('GIST_PYGMENTS_LINENUM', False)
-
-    # Make sure the gist cache directory exists
-    cache_base = pelican.settings.get('GIST_CACHE_LOCATION')
-    if not os.path.exists(cache_base):
-        os.makedirs(cache_base)
+    pelican.settings.setdefault(_TIMEGRAPHICS_ALLOW_FULLSCREEN, "1")
+    pelican.settings.setdefault(_TIMEGRAPHICS_SHOW_POWERED_BY, True)
+    pelican.settings.setdefault(_TIMEGRAPHICS_DEFAULT_WIDTH, "100%")
+    pelican.settings.setdefault(_TIMEGRAPHICS_DEFAULT_HEIGHT, "400")
+    pelican.settings.setdefault(_TIMEGRAPHICS_SHOW_FRAMEBORDER, "0")
 
 
-def render_code(code, filetype, pygments_style):
-    """Renders a piece of code into HTML. Highlights syntax if filetype is specfied"""
-    if filetype:
-        lexer = pygments.lexers.get_lexer_by_name(filetype)
-        formatter = pygments.formatters.HtmlFormatter(style=pygments_style)
-        return pygments.highlight(code, lexer, formatter)
-    else:
-        return "<pre><code>{}</code></pre>".format(code)
+def render_timegraphics_template(
+    context: Dict[str, str],
+    timeline_id: str,
+    width: str,
+    height: str,
+    show_frameborder: str,
+    allow_fullscreen: str,
+) -> str:
+    context.update(
+        {
+            "timeline_url": timeline_url(timeline_id),
+            "width": width,
+            "height": height,
+            "show_frameborder": show_frameborder,
+            "allowfullscreen": " allowfullscreen" if allow_fullscreen == "1" else "",
+        }
+    )
+
+    timegraphics_template = (
+        "<iframe "
+        'src="{{ timeline_url }}" '
+        'width="{{ width }}" height="{{ height }}" '
+        'frameborder="{{ show_frameborder }}"'
+        "{{ allowfullscreen }}></iframe>"
+    )
+
+    template = Template(timegraphics_template)
+
+    return template.render(context)
 
 
-def replace_gist_tags(generator):
+def add_powered_by(replacement: str, should_add: bool) -> str:
+    powered_by_template = '<div><a style="font-size: 12px; text-decoration: none;" title="Powered by Time.Graphics" href="https://time.graphics">Powered by Time.Graphics</a></div>'
+
+    if should_add:
+        replacement += powered_by_template
+
+    return replacement
+
+
+def replace_timegraphics_tags(generator: ArticlesGenerator):
     """Replace gist tags in the article content."""
-    from jinja2 import Template
-    template = Template(gist_template)
 
-    should_cache = generator.context.get('GIST_CACHE_ENABLED')
-    cache_location = generator.context.get('GIST_CACHE_LOCATION')
-    pygments_style = generator.context.get('GIST_PYGMENTS_STYLE')
+    show_powered_by = generator.context.get(_TIMEGRAPHICS_SHOW_POWERED_BY)
+    default_width = generator.context.get(_TIMEGRAPHICS_DEFAULT_WIDTH)
+    default_height = generator.context.get(_TIMEGRAPHICS_DEFAULT_HEIGHT)
+    default_allow_fullscreen = generator.context.get(_TIMEGRAPHICS_ALLOW_FULLSCREEN)
+    default_show_frameborder = generator.context.get(_TIMEGRAPHICS_SHOW_FRAMEBORDER)
 
-    body = None
-
+    article: Article
     for article in generator.articles:
-        for match in gist_regex.findall(article._content):
-            gist_id = match[1]
-            filename = None
-            filetype = None
-            if match[3]:
-                filename = match[3]
-            if match[5]:
-                filetype = match[5]
+        match: List[str]
+        for match in timegraphics_regex.findall(article._content):
+            timeline_id = get_match_value(match, 1)
+            width = get_match_value(match, 3, default_width)
+            height = get_match_value(match, 5, default_height)
+            allow_fullscreen = get_match_value(match, 7, default_allow_fullscreen)
+            show_frameborder = get_match_value(match, 9, default_show_frameborder)
+
             logger.info(
-                '[gist]: Found gist id {} with filename {} and filetype {}'.format(
-                    gist_id,
-                    filename,
-                    filetype,
-                ))
+                f"[timegraphics]: Found timegraphics id {timeline_id} "
+                f"with width {width}, "
+                f"height {height} "
+                f"which will {'not ' if show_frameborder == '0' else ''}show a frameborder"
+                f"and will {'not ' if allow_fullscreen == '0' else ''}allow full screen"
+            )
 
-            if should_cache:
-                body = get_cache(cache_location, gist_id, filename)
-
-            # Fetch the gist
-            if not body:
-                logger.info('[gist]: Gist did not exist in cache, fetching...')
-                body = fetch_gist(gist_id, filename)
-
-                if should_cache:
-                    logger.info('[gist]: Saving gist to cache...')
-                    set_cache(cache_location, gist_id, body, filename)
-            else:
-                logger.info('[gist]: Found gist in cache.')
-
-            # Create a context to render with
             context = generator.context.copy()
-            context.update({
-                'script_url': script_url(gist_id, filename),
-                'code': render_code(body, filetype, pygments_style)
-            })
-
-            # Render the template
-            replacement = template.render(context)
+            replacement = render_timegraphics_template(
+                context, timeline_id, width, height, allow_fullscreen, show_frameborder
+            )
+            replacement = add_powered_by(replacement, show_powered_by)
 
             article._content = article._content.replace(match[0], replacement)
 
@@ -157,6 +130,6 @@ def register():
     """Plugin registration."""
     from pelican import signals
 
-    signals.initialized.connect(setup_gist)
+    signals.initialized.connect(setup_timegraphics)
 
-    signals.article_generator_finalized.connect(replace_gist_tags)
+    signals.article_generator_finalized.connect(replace_timegraphics_tags)
