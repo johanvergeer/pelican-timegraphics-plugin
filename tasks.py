@@ -50,8 +50,8 @@ def flake8(c):
 
 @task
 def lint(c):
-    isort(c, check=True)
-    black(c, check=True)
+    isort(c, check=False)
+    black(c, check=False)
     flake8(c)
 
 

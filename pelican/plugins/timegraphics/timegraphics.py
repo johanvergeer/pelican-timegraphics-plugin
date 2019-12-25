@@ -9,11 +9,11 @@ from __future__ import unicode_literals
 
 import logging
 import re
-from typing import Union, List, Optional, Dict
+from typing import Dict, List, Optional, Union
 
 from jinja2 import Template
-from pelican.generators import ArticlesGenerator
 from pelican.contents import Article
+from pelican.generators import ArticlesGenerator
 
 _TIMEGRAPHICS_ALLOW_FULLSCREEN = "TIMEGRAPHICS_ALLOW_FULLSCREEN"
 _TIMEGRAPHICS_SHOW_POWERED_BY = "TIMEGRAPHICS_SHOW_POWERED_BY"
@@ -21,14 +21,20 @@ _TIMEGRAPHICS_DEFAULT_WIDTH = "TIMEGRAPHICS_DEFAULT_WIDTH"
 _TIMEGRAPHICS_DEFAULT_HEIGHT = "TIMEGRAPHICS_DEFAULT_HEIGHT"
 _TIMEGRAPHICS_SHOW_FRAMEBORDER = "TIMEGRAPHICS_SHOW_FRAMEBORDER"
 
+_TIMELINE_ID_INDEX = 1
+_WIDTH_INDEX = 3
+_HEIGHT_INDEX = 6
+_ALLOW_FULLSCREEN_INDEX = 9
+_SHOW_FRAMEBORDER_INDEX = 11
+
 logger = logging.getLogger(__name__)
 
 timegraphics_regex = re.compile(
-    r"(<p>\[timegraphics:id\=([0-9]+)"
-    r"(,width\=([1-9][0-9]*))?"
-    r"(,height\=([1-9][0-9]*))?"
-    r"(,allowfullscreen\=(0|1))?"
-    r"(,frameborder\=(0|1))?"
+    r"(<p>\[timegraphics:id=([0-9]+)"
+    r"(,width=([1-9][0-9]*(ch|ex|r?em|%|px|vh|vw|vmin|vmax|cm|mm|in|pc|pt)?))?"
+    r"(,height=([1-9][0-9]*(ch|ex|r?em|%|px|vh|vw|vmin|vmax|cm|mm|in|pc|pt)?))?"
+    r"(,allowfullscreen=([01]))?"
+    r"(,frameborder=([01]))?"
     r"\]</p>)"
 )
 
@@ -103,11 +109,15 @@ def replace_timegraphics_tags(generator: ArticlesGenerator):
     for article in generator.articles:
         match: List[str]
         for match in timegraphics_regex.findall(article._content):
-            timeline_id = get_match_value(match, 1)
-            width = get_match_value(match, 3, default_width)
-            height = get_match_value(match, 5, default_height)
-            allow_fullscreen = get_match_value(match, 7, default_allow_fullscreen)
-            show_frameborder = get_match_value(match, 9, default_show_frameborder)
+            timeline_id = get_match_value(match, _TIMELINE_ID_INDEX)
+            width = get_match_value(match, _WIDTH_INDEX, default_width)
+            height = get_match_value(match, _HEIGHT_INDEX, default_height)
+            allow_fullscreen = get_match_value(
+                match, _ALLOW_FULLSCREEN_INDEX, default_allow_fullscreen
+            )
+            show_frameborder = get_match_value(
+                match, _SHOW_FRAMEBORDER_INDEX, default_show_frameborder
+            )
 
             logger.info(
                 f"[timegraphics]: Found timegraphics id {timeline_id} "
